@@ -12,8 +12,11 @@ def model_101(G, Q, V, t_g, T):
     C_rise = [(G / Q) * (1 - np.exp((-Q * t) / V)) if t <= t_g else np.nan for t in time_vector]
     C0 = (G / Q) * (1 - np.exp(-Q * t_g / V))
     C_decay = [C0 * np.exp(-Q * (t - t_g) / V) if t > t_g else np.nan for t in time_vector]
-    C_combined = np.array([x if not np.isnan(x) else y for x, y in zip(C_rise, C_decay)])
-    return time_vector, C_combined
+    return time_vector, C_rise, C_decay
+
+def model_102(G, Q, Q_R, epsilon_RF, gamma):
+    C_bar = (gamma * G) / (Q + epsilon_RF * Q_R)
+    return C_bar
 
 def model_103(G, Q, Q_R, epsilon_RF, V, t_g, T):
     Q_with_RF = Q + epsilon_RF * Q_R
@@ -29,36 +32,50 @@ epsilon_RF = 0.9  # Efficiency of recirculation filtration
 V = 100  # m^3
 gamma = 0.25  
 
-# Perform calculations
-C_steady_100 = model_100(G, Q, gamma)
-time_101, concentration_101 = model_101(G, Q, V, t_g, T)
-time_103, concentration_103 = model_103(G, Q, Q_R, epsilon_RF, V, t_g, T)
 
-# Visualization: Model 101 vs Model 103
-plt.figure(figsize=(10, 5))
-plt.plot(time_101, concentration_101, label='Model 101')
-plt.plot(time_103, concentration_103, label='Model 103', linestyle='--')
-plt.title('Model 101 vs Model 103')
+# Calculate Results
+results_100 = model_100(G, Q, gamma)
+results_101 = model_101(G, Q, V, t_g, T)
+results_102 = model_102(G, Q, Q_R, epsilon_RF, gamma)
+results_103 = model_103(G, Q, Q_R, epsilon_RF, V, t_g, T)
+
+
+# Prepare Data for Plotting and Comparison
+time_101, C_rise_101, C_decay_101 = results_101
+time_103, C_rise_103, C_decay_103 = results_103
+
+results_101_df = pd.DataFrame({
+    'Time': np.concatenate([time_101, time_101]),
+    'Concentration': np.concatenate([C_rise_101, C_decay_101]),
+    'Model': 'Model 101'
+}).dropna()
+
+results_103_df = pd.DataFrame({
+    'Time': np.concatenate([time_103, time_103]),
+    'Concentration': np.concatenate([C_rise_103, C_decay_103]),
+    'Model': 'Model 103'
+}).dropna()
+
+# Plotting
+plt.figure(figsize=(10, 6))
+plt.plot(results_101_df['Time'], results_101_df['Concentration'], label='Model 101')
+plt.plot(results_103_df['Time'], results_103_df['Concentration'], label='Model 103', linestyle='dashed')
+plt.title('Comparison of Model 101 and Model 103')
 plt.xlabel('Time (minutes)')
 plt.ylabel('Concentration (mg/m^3)')
 plt.legend()
+plt.grid(True)
 plt.show()
 
 # Calculate Mean Squared Error and R^2
-mse = np.mean((concentration_101 - concentration_103)**2)
-r2 = np.corrcoef(concentration_101, concentration_103)[0, 1]**2
+mse = np.mean((results_101_df['Concentration'] - results_103_df['Concentration'])**2)
+r2 = np.corrcoef(results_101_df['Concentration'], results_103_df['Concentration'])[0, 1]**2
 
-# Statistical Analysis
-# Shapiro-Wilk test for normality
-normality_test_101 = shapiro(concentration_101[~np.isnan(concentration_101)])
-normality_test_103 = shapiro(concentration_103[~np.isnan(concentration_103)])
+# Normality Test
+normality_test_101 = stats.shapiro(results_101_df['Concentration'])
+normality_test_103 = stats.shapiro(results_103_df['Concentration'])
 
-# Wilcoxon Signed-Rank Test (if distributions are not normal)
-if normality_test_101.pvalue < 0.05 and normality_test_103.pvalue < 0.05:
-    # Ensuring equal length for the test
-    min_length = min(len(concentration_101[~np.isnan(concentration_101)]), 
-                     len(concentration_103[~np.isnan(concentration_103)]))
-    wilcoxon_test = wilcoxon(concentration_101[:min_length], 
-                             concentration_103[:min_length])
+# Wilcoxon Signed-Rank Test
+wilcoxon_test = stats.wilcoxon(results_101_df['Concentration'], results_103_df['Concentration'])
 
 mse, r2, normality_test_101, normality_test_103, wilcoxon_test
